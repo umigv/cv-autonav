@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # define environment names and requirement files
-ENV1="run_env"
-REQ1=""
+ENV1="base_env"
+REQ1="requirements_base.txt"
 
 ENV2="hsv_env"
-REQ1=""
+REQ1="requirements_hsv.txt"
 
 echo "Starting environment setup"
 
