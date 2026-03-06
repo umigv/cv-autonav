@@ -1,20 +1,12 @@
 # ground plane mask to occupancy grid
 
 from ransac import *
-
 import ransac.plane
-
 import numpy as np
-import numpy.typing as npt
-import cv2
-import skimage
-
 import math
 
-# TODO: create a tool to tune grid paramters (scale, rotation, translation) in real time (or on a recording)
 
-
-def create_ground_cloud(coords: npt.NDArray, ransac_coeffs: npt.NDArray):
+def ground_cloud(coords, ransac_coeffs):
     # coords is a Nx2 numpy array containing coordinates (x, y)
     # pass pixel coefficients
 
@@ -25,17 +17,8 @@ def create_ground_cloud(coords: npt.NDArray, ransac_coeffs: npt.NDArray):
     return np.concatenate((coords.astype(np.float64), z), axis=1)
 
 
-def create_point_cloud(mask: npt.NDArray, depth_map: npt.NDArray, skip: int = 3):
-    coords = np.argwhere(mask).astype(np.int64)
-    coords[:, [0, 1]] = coords[:, [1, 0]]  # (row, col) -> (x, y)
-    depths = depth_map[coords[:, 1], coords[:, 0]].reshape(-1, 1)
-
-    res = np.concatenate((coords.astype(np.float64), depths), axis=1)
-    return res[0::1+skip]
-
-
-def pixel_to_real(
-        pixel_cloud: npt.NDArray, real_coeffs: npt.NDArray, intr: Intrinsics, orientation: float = 0.0):
+def px_to_real(
+        pixel_cloud, real_coeffs, intr: Intrinsics, orientation: float = 0.0):
     # outputs (x,y,z) with real z as depth, y as height
     # y values are relative to the camera's height
     # orientation (radians) is positive to orient the camera left
@@ -62,119 +45,62 @@ def pixel_to_real(
     return cloud @ rotation_matrix
 
 
-def constrain(points: npt.NDArray, w: int, h: int):
-    points = points.astype(int)
-    valid = (points[:, 0] >= 0) & (points[:, 0] < w) & (
-        points[:, 1] >= 0) & (points[:, 1] < h)
-    return points[valid]
+def oneshot(mask_in, real_coeffs, intr: Intrinsics, conf: GridConfiguration,
+            cam_h=0, thres=200):
+    # the numpy fuckery in this just helps interpolation
+    # grid should be symmetric
+    # first and second indices are number of layers to compute
+    grid_shape = (3, 3, 2 * int((0.5 * conf.gh) // conf.cw),
+                  2 * int((0.5 * conf.gw) // conf.cw))
+    true_width = conf.cw * grid_shape[3]
+    true_height = conf.cw * grid_shape[2]
 
+    # go there, is the difference in depth of the prediction matching the depth at that actual place? is this process the same as the masking process? yes
 
-def occupancy_grid(real_pc: npt.NDArray, conf: GridConfiguration):
-    width = conf.gw // conf.cw
-    height = conf.gh // conf.cw
+    lys = np.arange(grid_shape[0])[:, None, None, None]
+    lxs = np.arange(grid_shape[1])[None, :, None, None]
+    gys = np.arange(grid_shape[2])[None, None, :, None]
+    gxs = np.arange(grid_shape[3])[None, None, None, :]
 
-    real_pc = real_pc[:, (0, 2)]
+    # apply camera rotation around the correct point
+    rgys = grid_shape[2] - gys - 0.5
+    rgxs = gxs - grid_shape[3] / 2 + 0.5
+    rgxs_tmp = rgxs * math.cos(cam_h) + rgys * math.sin(cam_h)
+    rgys_tmp = -rgxs * math.sin(cam_h) + rgys * math.cos(cam_h)
+    rgys = grid_shape[2] - rgys_tmp - 0.5
+    # intr.tx term compensates for depths being centered on left camera lens
+    # shift "after" position because rg{x,y}s used to poll from the mask
+    rgxs = rgxs_tmp + grid_shape[3] / 2 - 0.5 + (intr.tx / conf.cw / 2)
 
-    real_pc = real_pc.astype(np.int16)
-    real_pc[:, 0] = width // 2 + (real_pc[:, 0] // conf.cw)
-    real_pc[:, 1] = height - 1 - (real_pc[:, 1] // conf.cw)
-    real_pc = constrain(real_pc, width, height)
+    # pixel values into mm
+    cxs = conf.cw * ((lxs + 0.5) / grid_shape[0] + rgxs) - 0.5 * true_width
+    cys = true_height - conf.cw * (2 * (lys + 0.5) / grid_shape[1] + rgys)
 
-    cnt = np.bincount(real_pc[:, 1] * width + real_pc[:, 0])
-    cnt = np.resize(cnt, (height, width))
+    # project onto the camera plane
+    a, b, d = real_coeffs
+    theta = ransac.plane.real_angle(real_coeffs)
+    cam_height = math.sin(theta) * d
+    cys = cys * math.sin(theta)
+    cys = cys - math.cos(theta) * cam_height
 
-    grid = cnt >= conf.thres
+    # use mask to highlight driveable regions
+    zs = a * cxs + b * cys + d
+    pxs = np.round((cxs * intr.fx) / zs + intr.cx)
+    pys = np.round(intr.cy - (cys * intr.fy) / zs)
 
-    return grid
+    # ignore mask's outer edge
+    mask = 255 * mask_in.astype(np.float16)
+    mask[[0, -1], :] = np.nan
+    mask[:, [0, -1]] = np.nan
 
+    pxs = np.clip(pxs, 0, mask.shape[1] - 1).astype(np.int16)
+    pys = np.clip(pys, 0, mask.shape[0] - 1).astype(np.int16)
 
-def composite(drive_occ: npt.NDArray, block_occ: npt.NDArray):
-    full = drive_occ & (block_occ != 1)
-    full = full.astype(np.uint8) * 255
-    full[(block_occ | drive_occ) != 1] = 127
-    return full
+    grid = np.zeros(grid_shape, dtype=np.float16)
+    grid[lys, lxs, gys, gxs] = mask[pys, pxs]
+    grid = np.mean(grid, axis=(0, 1))
+    grid = np.where(grid > thres, 255, grid)
+    grid = np.where(grid < thres, 0, grid)
+    grid = np.nan_to_num(grid, nan=127)
 
-
-def fast_los_grid(merged: npt.NDArray, iters=10):
-    merged = merged.astype(np.uint8)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, ksize=(2, 2))
-    work = merged
-    for i in range(iters):
-        work = cv2.erode(work, kernel, iterations=2 * i)
-        merged[(merged == 127) & (work == 255)] = 255
-        work[merged == 255] = 255
-        work[merged == 0] = 0
-        work = cv2.dilate(work, kernel, iterations=i)
-        merged[(merged == 127) & (work == 0)] = 0
-        work[merged == 255] = 255
-        work[merged == 0] = 0
-    return work
-
-
-def create_los_grid(merged: npt.NDArray, cameras: list[VirtualCamera] = []):
-    # merged: 2-d boolean array with 0/255 as known driveable/undriveable
-    #         all other values are unknown
-    merged = merged.astype(np.uint8)
-    h, w = merged.shape
-
-    if len(cameras) == 0:
-        return fast_los_grid(merged)
-
-    for cam in cameras:
-        # scan right to left
-        dx0 = math.cos(cam.dir - cam.fov / 2)
-        dy0 = -math.sin(cam.dir - cam.fov / 2)
-        dx1 = math.cos(cam.dir + cam.fov / 2)
-        dy1 = -math.sin(cam.dir + cam.fov / 2)
-
-        r = 2 * (h + w)
-        x0, y0 = cam.j + int(dx0 * r), cam.i + int(dy0 * r)
-        x1, y1 = cam.j + int(dx1 * r), cam.i + int(dy1 * r)
-
-        # restrict x
-        nx0, nx1 = np.clip((x0, x1), 0, w - 1)
-        y0 += (nx0 - x0) * dy0 / dx0
-        x0 = nx0
-        y1 += (nx1 - x1) * dy1 / dx1
-        x1 = nx1
-
-        # restrict y
-        ny0, ny1 = np.clip((y0, y1), 0, h - 1)
-        x0 += (ny0 - y0) * dx0 / dy0
-        y0 = ny0
-        x1 += (ny1 - y1) * dx1 / dy1
-        y1 = ny1
-
-        x0, x1 = np.clip((x0, x1), 0, w - 1)
-        y0, y1 = np.clip((y0, y1), 0, h - 1)
-        x0, x1, y0, y1 = int(x0), int(x1), int(y0), int(y1)
-
-        idx, jdx = [], []
-        while x0 != x1 or y0 != y1:
-            idx.append(int(np.clip(y0, 0, h - 1)))
-            jdx.append(int(np.clip(x0, 0, w - 1)))
-            # traverse along image boundary acw
-            if x0 == 0 and y0 < h:
-                y0 += 1
-            elif y0 == h - 1 and x0 < w:
-                x0 += 1
-            elif x0 == w - 1 and y0 > 0:
-                y0 -= 1
-            elif y0 == 0 and x0 > 0:
-                x0 -= 1
-            else:
-                break
-
-        merged[cam.i, cam.j] = 255
-        for end_i, end_j in zip(idx, jdx):
-            state = 255
-            line = skimage.draw.line(cam.i, cam.j, end_i, end_j)
-            for p in range(len(line[0])):
-                if merged[line[0][p], line[1][p]] == 0:
-                    state = 0
-                elif merged[line[0][p], line[1][p]] == 255:
-                    state = 255
-                else:
-                    merged[line[0][p], line[1][p]] = state
-
-    return merged
+    return grid.astype(np.uint8)

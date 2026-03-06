@@ -5,23 +5,25 @@ from ransac import *
 import random
 import math
 
+from multiprocessing import Pool
+import warnings
 import numpy as np
-import numpy.typing as npt
-import skimage
 import cv2
+
 
 def pool(depths, kernel: tuple[int, int]):
     h, w = depths.shape
     w -= w % kernel[1]
     h -= h % kernel[0]
-    depths = depths[:h, :w]
-    return skimage.measure.block_reduce(depths, kernel, np.max) # remove influence of -1 values that plague np.mean
+    warnings.simplefilter("ignore", category=RuntimeWarning)
+    return np.nanmean(depths[:h, :w].reshape(h//kernel[0], kernel[0], w//kernel[1], kernel[1]), axis=(1, 3))
 
 
 def sample(pooled):
     h, w = pooled.shape
     A = np.zeros((3, 3))
     b = np.zeros(3)
+
     while True:
         for i in range(3):
             row = -1
@@ -40,55 +42,102 @@ def plane(A, b):
     return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
-def metric(pooled, coeffs, tol: float):
+def metric(depths, coeffs, tol: float):
     c1, c2, c3 = coeffs
-    h, w = pooled.shape
-    ys, xs = np.indices((h, w))
-    z_pred = c1 * xs + c2 * ys + c3
-    err = np.abs(z_pred - pooled)
-    return np.count_nonzero((pooled > 0) & (err < tol))
+    h, w = depths.shape
+
+    x = np.arange(w, dtype=depths.dtype)[None, :]
+    y = np.arange(h, dtype=depths.dtype)[:, None]
+
+    r = c1 * x + c2 * y
+    r += c3
+    r -= depths
+    np.abs(r, out=r)
+
+    return np.count_nonzero((depths > 0) & (r < tol))
 
 
 def mask(depths, coeffs, tol: float):
     h, w = depths.shape
-    X, Y = np.meshgrid(np.arange(w), np.arange(h))
     c1, c2, c3 = coeffs
-    Z = pow(c1 * X + c2 * Y + c3 - depths, 2)
-    return (depths > 0) & (Z < tol)
+
+    x = np.arange(w, dtype=depths.dtype)[None, :]
+    y = np.arange(h, dtype=depths.dtype)[:, None]
+    r = (c1 * x + c2 * y + c3) - depths
+    return (depths > 0) & (r * r < tol)
 
 
 def clean_depths(depths):
-    depths = np.where(np.isinf(depths) | np.isnan(depths), -1, depths)
-    depths = np.where(depths > 10000, 10000, depths)
+    depths = np.where(depths > 10000, np.nan, depths)
     return depths
 
 
-# will maintain the dimensions of the original
+def _ground_plane(pooled, tol, times):
+    res = None
+    best = 0
+    for _ in range(times):
+        coeffs = plane(*sample(pooled))
+        score = metric(pooled, coeffs, tol)
+        if score > best:
+            res = coeffs
+            best = score
+    return best, res
+
+# TODO: make this handle multiple depth frames
+
+
 def ground_plane(
-    depths, iters: int = 60, kernel: tuple[int, int] = (1, 12), tol: float = 0.1
-):
+        depths, samples=100, kernel=(1, 16), tol=0.12, guess=np.array([0.0, 0.0, 0.0]), thread_pool=None, processes=4):
     depths = clean_depths(depths)
-    max_depth = float(depths.max())
+    max_depth = float(np.nanmax(depths))
+    if max_depth is math.nan:
+        return np.zeros_like(depths), guess
     inv_depths = max_depth / depths
 
     pooled = pool(inv_depths, kernel)
-    best = 0
-    best_coeffs = [0, 0, 0]
 
-    for _ in range(iters):
-        A, b = sample(pooled)
-        coeffs = plane(A, b)
-        score = metric(pooled, coeffs, tol)
-        if score > best:
-            best = score
-            best_coeffs = coeffs
+    best_coeffs = guess.astype(float)
+    if guess.shape != (3,):
+        print("warning: invalid plane coefficient estimates")
+        best_coeffs = np.array([0.0, 0.0, 0.0])
+    else:
+        best_coeffs *= float(max_depth)
+        best_coeffs[0] *= float(kernel[1])
+        best_coeffs[1] *= float(kernel[0])
+    best = metric(pooled, best_coeffs, tol)
+
+    if thread_pool is None:
+        run_best, run_coeffs = _ground_plane(pooled, tol, samples)
+        if run_best > best:
+            best_coeffs = run_coeffs
+    else:
+        args = (pooled, tol, samples // processes)
+        results = thread_pool.starmap(
+            _ground_plane, [args for _ in range(processes)])
+        _, best_coeffs = max(results, key=lambda t: t[0])
 
     best_coeffs[0] /= kernel[1]
     best_coeffs[1] /= kernel[0]
 
-    res = mask(inv_depths, best_coeffs, tol)    
+    res = mask(inv_depths, best_coeffs, tol)
 
     return res, np.array(best_coeffs) / max_depth
+
+
+def real_coeffs(best_coeffs, intrinsics: Intrinsics):
+    c1, c2, c3 = best_coeffs
+    # d = depth at the focal point
+    d = 1 / (c1 * intrinsics.cx + c2 * intrinsics.cy + c3)
+    return (-d * c1 * intrinsics.fx, d * c2 * intrinsics.fy, d)
+
+
+# angle of depression
+def real_angle(real_coeffs):
+    a, b, _ = real_coeffs
+    rad = math.acos(1 / math.hypot(a, b, 1))
+    if (math.isnan(rad)):
+        return 0
+    return math.pi / 2 - rad
 
 
 def hsv_mask(image):
@@ -108,19 +157,3 @@ def hsv_and_ransac(image, *args):
     open_kernel = np.ones((7, 7), np.uint8)
     driveable = cv2.morphologyEx(driveable, cv2.MORPH_OPEN, open_kernel)
     return driveable.astype(bool), coeffs
-
-
-def real_coeffs(best_coeffs, intrinsics: Intrinsics):
-    c1, c2, c3 = best_coeffs
-    # d = depth at the focal point
-    d = 1 / (c1 * intrinsics.cx + c2 * intrinsics.cy + c3)
-    return (-d * c1 * intrinsics.fx, d * c2 * intrinsics.fy, d)
-
-
-# angle of depression
-def real_angle(real_coeffs):
-    a, b, _ = real_coeffs
-    rad = math.acos(1 / math.hypot(a, b, 1))
-    if (math.isnan(rad)):
-        return 0
-    return math.pi / 2 - rad
