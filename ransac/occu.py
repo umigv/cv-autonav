@@ -46,7 +46,7 @@ def px_to_real(
 
 
 def oneshot(mask_in, real_coeffs, intr: Intrinsics, conf: GridConfiguration,
-            cam_h=0, thres=200):
+            pos: CameraPosition, thres=200):
     # the numpy fuckery in this just helps interpolation
     # grid should be symmetric
     # first and second indices are number of layers to compute
@@ -63,16 +63,16 @@ def oneshot(mask_in, real_coeffs, intr: Intrinsics, conf: GridConfiguration,
     gxs = np.arange(grid_shape[3])[None, None, None, :]
 
     # apply camera rotation around the correct point
-    rgys = grid_shape[2] - gys - 0.5
-    rgxs = gxs - grid_shape[3] / 2 + 0.5
-    rgxs_tmp = rgxs * math.cos(cam_h) + rgys * math.sin(cam_h)
-    rgys_tmp = -rgxs * math.sin(cam_h) + rgys * math.cos(cam_h)
-    rgys = grid_shape[2] - rgys_tmp - 0.5
+    rgxs = gxs - grid_shape[3] / 2 + 0.5 - (pos.x / conf.cw)
+    rgys = grid_shape[2] - gys - 0.5 - (pos.y / conf.cw)
+    rgxs_tmp = rgxs * math.cos(pos.h) + rgys * math.sin(pos.h)
+    rgys_tmp = -rgxs * math.sin(pos.h) + rgys * math.cos(pos.h)
     # intr.tx term compensates for depths being centered on left camera lens
     # shift "after" position because rg{x,y}s used to poll from the mask
     rgxs = rgxs_tmp + grid_shape[3] / 2 - 0.5 + (intr.tx / conf.cw / 2)
+    rgys = grid_shape[2] - rgys_tmp - 0.5
 
-    # pixel values into mm
+    # occupancy grid locations into mm
     cxs = conf.cw * ((lxs + 0.5) / grid_shape[0] + rgxs) - 0.5 * true_width
     cys = true_height - conf.cw * (2 * (lys + 0.5) / grid_shape[1] + rgys)
 
@@ -84,7 +84,8 @@ def oneshot(mask_in, real_coeffs, intr: Intrinsics, conf: GridConfiguration,
     cys = cys - math.cos(theta) * cam_height
 
     # use mask to highlight driveable regions
-    zs = a * cxs + b * cys + d
+    # this equation enforces that all (cxs, cys, zs) are on a 2-d surface, creating a bijection between the mask and the ground plane, eliminating false positives (where the ground plane location is under an obstacle but it maps to a pixel that is not occupied)
+    zs = np.clip(a * cxs + b * cys + d, 1.0, None)
     pxs = np.round((cxs * intr.fx) / zs + intr.cx)
     pys = np.round(intr.cy - (cys * intr.fy) / zs)
 

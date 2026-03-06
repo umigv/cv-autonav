@@ -16,3 +16,9 @@ class GridConfiguration:
     gh: float  # grid height in mm
     cw: float  # cell width in mm
 
+
+@dataclass
+class CameraPosition:
+    x: float = 0.0 # mm, positive is right of wheelbase
+    y: float = 0.0 # mm, positive is forward from wheelbase
+    h: float = 0.0 # radians, positive is anticlockwise

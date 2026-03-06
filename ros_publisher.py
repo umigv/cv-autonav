@@ -33,6 +33,13 @@ from ransac import *
 import ransac.plane
 import ransac.occu
 
+# >>> ros2 change
+import rclpy
+from rclpy.node import Node
+from nav_msgs.msg import OccupancyGrid, MapMetaData
+from geometry_msgs.msg import PointStamped, Pose, Quaternion, Point
+# <<< ros2 end of change
+
 
 def print_params(calibration_params: sl.CalibrationParameters):
     # LEFT CAMERA intrinsics
@@ -68,12 +75,61 @@ def print_params(calibration_params: sl.CalibrationParameters):
 
 
 def intrinsics_from_params(params: sl.CalibrationParameters, sx, sy):
+
     return ransac.Intrinsics(params.left_cam.cx * sx, params.left_cam.cy * sy,
                              params.left_cam.fx * sx, params.left_cam.fy * sy,
                              params.stereo_transform.get_translation().get()[0])
 
 
+class OccGridPublisher(Node):
+    def __init__(self, width: int, height: int, resolution: float):
+        super().__init__('occ_grid_publisher_left')
+        self.pub = self.create_publisher(OccupancyGrid, 'occ_grid/left', 10)
+        self.width = width
+        self.height = height
+        self.resolution = resolution
+
+    def publish(self, grid_np):
+        msg = OccupancyGrid()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'base_link'
+
+        info = MapMetaData()
+        info.width = self.width
+        info.height = self.height
+        info.resolution = self.resolution
+
+        # Origin: where camera is roughly
+        origin = Pose()
+        origin.position = Point(
+            x=0.0,
+            y=-self.width * self.resolution / 2.0,
+            z=0.0
+        )
+        origin.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        info.origin = origin
+
+        msg.info = info
+
+        # Convert internal 0/127/255 encoding to ROS -1/0/100
+        flat = grid_np.astype('uint8')
+        ros = np.full(flat.shape, -1, dtype=np.int8)
+        ros[flat == 0] = 100   # occupied
+        ros[flat == 255] = 0   # free
+
+        # TODO: mark waypoints as 127
+
+        ros = np.flipud(ros)
+        ros = np.fliplr(ros)
+        # ros = np.rot90(ros, k=3)
+
+        msg.data = ros.flatten().tolist()
+
+        self.pub.publish(msg)
+
+
 def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
+    rclpy.init()
     cam = sl.Camera()
 
     init = sl.InitParameters()
@@ -107,6 +163,7 @@ def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
     grid_width = grid_conf.gw // grid_conf.cw
     grid_height = grid_conf.gh // grid_conf.cw
     cell_resolution_m = grid_conf.cw / 1000.0
+    occ_node = OccGridPublisher(grid_width, grid_height, cell_resolution_m)
 
     thread_pool_size = 4
     thread_pool = Pool(thread_pool_size)
@@ -149,11 +206,18 @@ def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
         cv2.imshow("occupancy grid", occ_img)
         print(f"angle: {math.degrees(rad): .3f} deg")
 
+        occ_node.publish(occ)
+        rclpy.spin_once(occ_node, timeout_sec=0.0)
+
         key = cv2.waitKey(1)
 
     cv2.destroyAllWindows()
     cam.close()
+    rclpy.shutdown()
 
 
 if __name__ == "__main__":
+    ros_pool = Pool(2)
+    ros_pool.starmap(run_ransac_on_zed,
+                     [(CameraPosition(0, 0, math.radians(45)), 0), (CameraPosition(0, 0, math.radians(-45)), 1)])
     run_ransac_on_zed()
