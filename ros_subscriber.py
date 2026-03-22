@@ -13,9 +13,9 @@ class GridMerger(Node):
         self.grid1 = None
         self.grid2 = None
 
-        self.create_subscription(OccupancyGrid, 'occ_grid/left', self.cb1, 10)
-        self.create_subscription(OccupancyGrid, 'occ_grid/right', self.cb2, 10)
-        self.pub = self.create_publisher(OccupancyGrid, 'occ_grid/merged', 10)
+        self.create_subscription(OccupancyGrid, 'occupancy_grid/left', self.cb1, 10)
+        self.create_subscription(OccupancyGrid, 'occupancy_grid/right', self.cb2, 10)
+        self.pub = self.create_publisher(OccupancyGrid, 'occupancy_grid/raw', 10)
 
     def cb1(self, msg):
         self.grid1 = msg

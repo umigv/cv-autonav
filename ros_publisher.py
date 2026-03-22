@@ -18,20 +18,19 @@
 #
 ########################################################################
 
-import sys
 import pyzed.sl as sl
 from signal import signal, SIGINT
-import argparse
-import os
 import cv2
 import numpy as np
 import math
 
-from multiprocessing import Pool
+from multiprocessing import Pool, Process
 
 from ransac import *
 import ransac.plane
 import ransac.occu
+
+from time import perf_counter
 
 # >>> ros2 change
 import rclpy
@@ -82,9 +81,9 @@ def intrinsics_from_params(params: sl.CalibrationParameters, sx, sy):
 
 
 class OccGridPublisher(Node):
-    def __init__(self, width: int, height: int, resolution: float):
-        super().__init__('occ_grid_publisher_left')
-        self.pub = self.create_publisher(OccupancyGrid, 'occ_grid/left', 10)
+    def __init__(self, side: str, width: int, height: int, resolution: float):
+        super().__init__(f"occ_grid_publisher_{side}")
+        self.pub = self.create_publisher(OccupancyGrid, f"occupancy_grid/{side}", 10)
         self.width = width
         self.height = height
         self.resolution = resolution
@@ -128,7 +127,7 @@ class OccGridPublisher(Node):
         self.pub.publish(msg)
 
 
-def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
+def run_ransac_on_zed(side: str, cam_pos=CameraPosition(), serial_number=None):
     rclpy.init()
     cam = sl.Camera()
 
@@ -160,10 +159,10 @@ def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
                                   h / float(resolution.height))
     grid_conf = ransac.GridConfiguration(5000.0, 5000.0, 50.0)
 
-    grid_width = grid_conf.gw // grid_conf.cw
-    grid_height = grid_conf.gh // grid_conf.cw
+    grid_width = int(grid_conf.gw // grid_conf.cw)
+    grid_height = int(grid_conf.gh // grid_conf.cw)
     cell_resolution_m = grid_conf.cw / 1000.0
-    occ_node = OccGridPublisher(grid_width, grid_height, cell_resolution_m)
+    occ_node = OccGridPublisher(side, grid_width, grid_height, cell_resolution_m)
 
     thread_pool_size = 4
     thread_pool = Pool(thread_pool_size)
@@ -171,7 +170,7 @@ def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
 
     image_mat = sl.Mat()
     depth_mat = sl.Mat()
-
+    start = perf_counter()
     key = 0
     while key != 113:  # for 'q' key
         err = cam.grab(runtime)
@@ -206,6 +205,11 @@ def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
         cv2.imshow("occupancy grid", occ_img)
         print(f"angle: {math.degrees(rad): .3f} deg")
 
+        now = perf_counter()
+        print(f"{cam.get_camera_information().serial_number}: {1 / (now - start):.2f} FPS")
+        start = now
+
+
         occ_node.publish(occ)
         rclpy.spin_once(occ_node, timeout_sec=0.0)
 
@@ -217,7 +221,13 @@ def run_ransac_on_zed(cam_pos=CameraPosition(), serial_number=None):
 
 
 if __name__ == "__main__":
-    ros_pool = Pool(2)
-    ros_pool.starmap(run_ransac_on_zed,
-                     [(CameraPosition(0, 0, math.radians(45)), 0), (CameraPosition(0, 0, math.radians(-45)), 1)])
-    run_ransac_on_zed()
+    p1 = Process(target=run_ransac_on_zed,
+                 args=("left", CameraPosition(0, 0, math.radians(45)), None))
+    p2 = Process(target=run_ransac_on_zed,
+                 args=("right", CameraPosition(0, 0, math.radians(-45)), None))
+
+    p1.start()
+    p2.start()
+
+    p1.join()
+    p2.join()
