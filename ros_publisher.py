@@ -32,6 +32,9 @@ import ransac.occu
 
 from time import perf_counter
 
+# TODO! create a python source package from cv-depth-segmentation and install it here
+
+
 # >>> ros2 change
 import rclpy
 from rclpy.node import Node
