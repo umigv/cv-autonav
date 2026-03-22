@@ -118,9 +118,8 @@ class OccGridPublisher(Node):
 
         # TODO: mark waypoints as 127
 
+        ros = np.rot90(ros, k=3)
         ros = np.flipud(ros)
-        ros = np.fliplr(ros)
-        # ros = np.rot90(ros, k=3)
 
         msg.data = ros.flatten().tolist()
 
@@ -189,13 +188,15 @@ def run_ransac_on_zed(side: str, cam_pos=CameraPosition(), serial_number=None):
         # ACTUAL USE
         # ransac_output, ransac_coeffs = ransac.plane.hsv_and_ransac(image, depths, 60, (1, 16), 0.15)
         # GROUND ONLY
+        hsv_mask = ransac.plane.hsv_mask(image)
         ground_mask, px_coeffs = ransac.plane.ground_plane(
             depths, 100, (1, 16), 0.13, px_coeffs, thread_pool, thread_pool_size
         )
+        # lane_mask = ground_mask & 
         real_coeffs = ransac.plane.real_coeffs(px_coeffs, intr)
         rad = ransac.plane.real_angle(real_coeffs)
         occ = ransac.occu.oneshot(
-            ground_mask, real_coeffs, intr, grid_conf, cam_pos, thres=200)
+            hsv_mask, real_coeffs, intr, grid_conf, cam_pos, thres=200)
 
         # convert occupancy grid to image format
         occ_img = cv2.cvtColor(occ, cv2.COLOR_GRAY2BGR)
@@ -222,12 +223,12 @@ def run_ransac_on_zed(side: str, cam_pos=CameraPosition(), serial_number=None):
 
 if __name__ == "__main__":
     p1 = Process(target=run_ransac_on_zed,
-                 args=("left", CameraPosition(0, 0, math.radians(45)), None))
-    p2 = Process(target=run_ransac_on_zed,
-                 args=("right", CameraPosition(0, 0, math.radians(-45)), None))
+                 args=("left", CameraPosition(0, 0, math.radians(0)), None))
+    # p2 = Process(target=run_ransac_on_zed,
+    #              args=("right", CameraPosition(0, 0, math.radians(-45)), None))
 
     p1.start()
-    p2.start()
+    # p2.start()
 
     p1.join()
-    p2.join()
+    # p2.join()

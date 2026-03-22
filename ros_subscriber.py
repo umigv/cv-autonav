@@ -11,33 +11,34 @@ class GridMerger(Node):
         super().__init__('occ_grid_merger')
 
         self.grid1 = None
-        self.grid2 = None
+        # self.grid2 = None
 
         self.create_subscription(OccupancyGrid, 'occupancy_grid/left', self.cb1, 10)
-        self.create_subscription(OccupancyGrid, 'occupancy_grid/right', self.cb2, 10)
+        # self.create_subscription(OccupancyGrid, 'occupancy_grid/right', self.cb2, 10)
         self.pub = self.create_publisher(OccupancyGrid, 'occupancy_grid/raw', 10)
 
     def cb1(self, msg):
         self.grid1 = msg
         self.try_publish()
 
-    def cb2(self, msg):
-        self.grid2 = msg
-        self.try_publish()
+    # def cb2(self, msg):
+    #     self.grid2 = msg
+    #     self.try_publish()
 
     def try_publish(self):
-        if self.grid1 is None or self.grid2 is None:
+        if self.grid1 is None: # or self.grid2 is None:
             return
 
         a = np.array(self.grid1.data, dtype=np.int8)
-        b = np.array(self.grid2.data, dtype=np.int8)
+        # b = np.array(self.grid2.data, dtype=np.int8)
+        
+        merged = a
+        # merged = np.full_like(a, -1)
+        # occ = (a == 100) | (b == 100)
+        # free = ((a == 0) | (b == 0)) & (~occ)
 
-        merged = np.full_like(a, -1)
-        occ = (a == 100) | (b == 100)
-        free = ((a == 0) | (b == 0)) & (~occ)
-
-        merged[occ] = 100
-        merged[free] = 0
+        # merged[occ] = 100
+        # merged[free] = 0
 
         out = OccupancyGrid()
         out.header.stamp = self.get_clock().now().to_msg()
