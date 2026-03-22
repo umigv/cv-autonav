@@ -74,7 +74,7 @@ def oneshot(mask_in, real_coeffs, intr: Intrinsics, conf: GridConfiguration,
 
     # occupancy grid locations into mm
     cxs = conf.cw * ((lxs + 0.5) / grid_shape[0] + rgxs) - 0.5 * true_width
-    cys = true_height - conf.cw * (2 * (lys + 0.5) / grid_shape[1] + rgys)
+    cys = true_height - conf.cw * ((lys + 0.5) / grid_shape[1] + rgys)
 
     # project onto the camera plane
     a, b, d = real_coeffs
