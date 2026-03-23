@@ -36,11 +36,11 @@ class GridMerger(Node):
         b = np.array(self.grid2.data, dtype=np.int8)
 
         merged = np.full_like(a, -1)
-        occ = (a == 100) | (b == 100)
-        free = ((a == 0) | (b == 0)) & (~occ)
+        free = (a == 0) | (b == 0)
+        occ = ((a == 100) | (b == 100)) & (~free)
 
-        merged[occ] = 100
         merged[free] = 0
+        merged[occ] = 100
 
         out = OccupancyGrid()
         out.header.stamp = self.get_clock().now().to_msg()
