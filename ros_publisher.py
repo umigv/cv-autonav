@@ -26,14 +26,11 @@ import math
 
 from multiprocessing import Pool, Process
 
-from ransac import *
-import ransac.plane
-import ransac.occu
+import ransac as rsc
 
 from time import perf_counter
 
-# TODO! create a python source package from cv-depth-segmentation and install it here
-
+# TODO! integrate all cv repos together
 
 # >>> ros2 change
 import rclpy
@@ -43,53 +40,14 @@ from geometry_msgs.msg import PointStamped, Pose, Quaternion, Point
 # <<< ros2 end of change
 
 
-def print_params(calibration_params: sl.CalibrationParameters):
-    # LEFT CAMERA intrinsics
-    fx_left = calibration_params.left_cam.fx
-    fy_left = calibration_params.left_cam.fy
-    cx_left = calibration_params.left_cam.cx
-    cy_left = calibration_params.left_cam.cy
-
-    # RIGHT CAMERA intrinsics
-    fx_right = calibration_params.right_cam.fx
-    fy_right = calibration_params.right_cam.fy
-    cx_right = calibration_params.right_cam.cx
-    cy_right = calibration_params.right_cam.cy
-
-    # Translation (baseline) between left and right camera
-    tx = calibration_params.stereo_transform.get_translation().get()[0]
-
-    # Print results
-    print("\n--- ZED Camera Calibration Parameters ---")
-    print("Left Camera Intrinsics:")
-    print(f"  fx = {fx_left:.3f}")
-    print(f"  fy = {fy_left:.3f}")
-    print(f"  cx = {cx_left:.3f}")
-    print(f"  cy = {cy_left:.3f}\n")
-
-    print("Right Camera Intrinsics:")
-    print(f"  fx = {fx_right:.3f}")
-    print(f"  fy = {fy_right:.3f}")
-    print(f"  cx = {cx_right:.3f}")
-    print(f"  cy = {cy_right:.3f}\n")
-
-    print(f"Stereo Baseline (tx): {tx:.6f} meters")
-
-
-def intrinsics_from_params(params: sl.CalibrationParameters, sx, sy):
-
-    return ransac.Intrinsics(params.left_cam.cx * sx, params.left_cam.cy * sy,
-                             params.left_cam.fx * sx, params.left_cam.fy * sy,
-                             params.stereo_transform.get_translation().get()[0])
-
-
 class OccGridPublisher(Node):
-    def __init__(self, side: str, width: int, height: int, resolution: float):
+    def __init__(self, side: str, conf: rsc.GridConfiguration):
         super().__init__(f"occ_grid_publisher_{side}")
-        self.pub = self.create_publisher(OccupancyGrid, f"occupancy_grid/{side}", 10)
-        self.width = width
-        self.height = height
-        self.resolution = resolution
+        self.pub = self.create_publisher(
+            OccupancyGrid, f"occupancy_grid/{side}", 10)
+        self.width = int(conf.gw // conf.cw)
+        self.height = int(conf.gh // conf.cw)
+        self.resolution = conf.cw / 1000.0
 
     def publish(self, grid_np):
         msg = OccupancyGrid()
@@ -119,7 +77,7 @@ class OccGridPublisher(Node):
         ros[flat == 0] = 100   # occupied
         ros[flat == 255] = 0   # free
 
-        # TODO: mark waypoints as 127
+        # TODO! mark waypoints as 127
 
         ros = np.rot90(ros, k=3)
         ros = np.flipud(ros)
@@ -129,109 +87,70 @@ class OccGridPublisher(Node):
         self.pub.publish(msg)
 
 
-def run_ransac_on_zed(side: str, cam_pos=CameraPosition(), serial_number=None):
+def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=None):
     rclpy.init()
-    cam = sl.Camera()
 
+    # setup zed camera parameters
     init = sl.InitParameters()
+    init.async_image_retrieval = True
+    init.depth_mode = sl.DEPTH_MODE.NEURAL
+    init.camera_resolution = sl.RESOLUTION.HD720  # try .VGA
+    init.camera_fps = 30  # lower framerate to avoid issues
     if serial_number is not None:
         init.set_from_serial_number(serial_number)
-    # TODO: perhaps set resolution of init parameters to VGA to match 720x404
-    init.depth_mode = sl.DEPTH_MODE.NEURAL
-    init.async_image_retrieval = True  # maybe change to False if stuff breaks
 
-    status = cam.open(init)
-    if status != sl.ERROR_CODE.SUCCESS:
-        print("Camera Open", status, "Exit program.")
-        exit(1)
+    # setup ransac pipeline
+    live = rsc.LiveSource(init, (720, 404))
+    conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
+    depseg = rsc.DepthSegementation([(live, cam_pos)], conf)
 
-    runtime = sl.RuntimeParameters()
+    # configure ROS publisher
 
-    resolution = cam.get_camera_information().camera_configuration.resolution
-    w = min(720, resolution.width)
-    h = min(404, resolution.height)
-    low_res = sl.Resolution(w, h)
+    occ_node = OccGridPublisher(side, conf)
 
-    cam_info = cam.get_camera_information()
-    calibration_params = cam_info.camera_configuration.calibration_parameters
-    print_params(calibration_params)
-
-    intr = intrinsics_from_params(calibration_params,
-                                  w / float(resolution.width),
-                                  h / float(resolution.height))
-    grid_conf = ransac.GridConfiguration(5000.0, 5000.0, 50.0)
-
-    grid_width = int(grid_conf.gw // grid_conf.cw)
-    grid_height = int(grid_conf.gh // grid_conf.cw)
-    cell_resolution_m = grid_conf.cw / 1000.0
-    occ_node = OccGridPublisher(side, grid_width, grid_height, cell_resolution_m)
-
-    thread_pool_size = 4
-    thread_pool = Pool(thread_pool_size)
-    px_coeffs = np.array([0.0, 0.0, 0.0])
-
-    image_mat = sl.Mat()
-    depth_mat = sl.Mat()
-    start = perf_counter()
     key = 0
+    start = perf_counter()
     while key != 113:  # for 'q' key
-        err = cam.grab(runtime)
-        if err > sl.ERROR_CODE.SUCCESS:  # good to go
-            print("Grab ZED : ", err)
+        key = cv2.waitKey(1)
+
+        if not live.update():
             break
 
-        # FIXME pointing camera at only the ground causing a crash
-        cam.retrieve_image(image_mat, sl.VIEW.LEFT, sl.MEM.CPU, low_res)
-        cam.retrieve_measure(depth_mat, sl.MEASURE.DEPTH, sl.MEM.CPU, low_res)
+        updated = depseg.process()
+        if not updated:
+            continue
 
-        image = image_mat.get_data()
-        depths = ransac.plane.clean_depths(depth_mat.get_data())
-
-        # generate occupancy grid
-        # ACTUAL USE
-        # ransac_output, ransac_coeffs = ransac.plane.hsv_and_ransac(image, depths, 60, (1, 16), 0.15)
-        # GROUND ONLY
-        hsv_mask = ransac.plane.hsv_mask(image)
-        ground_mask, px_coeffs = ransac.plane.ground_plane(
-            depths, 100, (1, 16), 0.13, px_coeffs, thread_pool, thread_pool_size
-        )
-        # lane_mask = ground_mask & 
-        real_coeffs = ransac.plane.real_coeffs(px_coeffs, intr)
-        rad = ransac.plane.real_angle(real_coeffs)
-        occ = ransac.occu.oneshot(
-            hsv_mask, real_coeffs, intr, grid_conf, cam_pos, thres=200)
-
-        # convert occupancy grid to image format
+        occ = depseg.merge_simple()
         occ_img = cv2.cvtColor(occ, cv2.COLOR_GRAY2BGR)
         occ_img = cv2.resize(
             occ_img, (600, 600), interpolation=cv2.INTER_NEAREST_EXACT
         )
-        cv2.imshow("occupancy grid", occ_img)
-        print(f"angle: {math.degrees(rad): .3f} deg")
+        cv2.imshow(f"[{side}] occupancy grid", occ_img)
 
         now = perf_counter()
-        print(f"{cam.get_camera_information().serial_number}: {1 / (now - start):.2f} FPS")
+        # TODO: implement DepthSource.serial_number()
+        # print(f"{live.serial_number()}: {1 / (now - start):.2f} FPS")
         start = now
-
 
         occ_node.publish(occ)
         rclpy.spin_once(occ_node, timeout_sec=0.0)
 
-        key = cv2.waitKey(1)
-
     cv2.destroyAllWindows()
-    cam.close()
     rclpy.shutdown()
 
 
+def spin_up_node(side: str, pos: rsc.CameraPosition, ser: int | None):
+    return Process(target=run_ransac_on_zed, args=(side, pos, ser))
+
+
 if __name__ == "__main__":
-    p1 = Process(target=run_ransac_on_zed,
-                 args=("left", CameraPosition(0, 0, math.radians(0)), None))
-    # p2 = Process(target=run_ransac_on_zed,
-    #              args=("right", CameraPosition(0, 0, math.radians(-45)), None))
+    left_pos = rsc.CameraPosition(0, 0, math.radians(30))
+    right_pos = rsc.CameraPosition(0, 0, math.radians(-30))
 
-    p1.start()
-    # p2.start()
+    left_proc = spin_up_node("left", left_pos, None)
+    right_proc = spin_up_node("right", right_pos, None)
 
-    p1.join()
-    # p2.join()
+    left_proc.start()
+    right_proc.join()
+    left_proc.join()
+    right_proc.join()
