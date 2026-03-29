@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import time
 import numpy as np
 from typing import cast
 import rclpy
@@ -13,6 +14,8 @@ class GridMerger(Node):
 
         self.grid1 = None
         self.grid2 = None
+        self.last1 = 0
+        self.last2 = 0
 
         self.create_subscription(
             OccupancyGrid, 'occupancy_grid/left', self.cb1, 10)
@@ -22,12 +25,14 @@ class GridMerger(Node):
             OccupancyGrid, 'occupancy_grid/raw', 10)
 
     def cb1(self, msg):
+        self.last1 = time.perf_counter()
         self.grid1 = msg
         if self.grid2 is None:
             self.grid2 = msg
         self.try_publish()
 
     def cb2(self, msg):
+        self.last2 = time.perf_counter()
         self.grid2 = msg
         if self.grid1 is None:
             self.grid1 = msg
@@ -39,6 +44,11 @@ class GridMerger(Node):
 
         a = np.array(self.grid1.data, dtype=np.int8)
         b = np.array(self.grid2.data, dtype=np.int8)
+        
+        if self.last1 > self.last2 + .5:
+            b = a
+        elif self.last2 > self.last1 + .5:
+            a = b
 
         merged = np.full_like(a, -1)
         free = (a == 0) | (b == 0)
