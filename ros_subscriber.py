@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
+from typing import cast
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
@@ -22,10 +23,14 @@ class GridMerger(Node):
 
     def cb1(self, msg):
         self.grid1 = msg
+        if self.grid2 is None:
+            self.grid2 = msg
         self.try_publish()
 
     def cb2(self, msg):
         self.grid2 = msg
+        if self.grid1 is None:
+            self.grid1 = msg
         self.try_publish()
 
     def try_publish(self):
