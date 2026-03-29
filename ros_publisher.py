@@ -151,6 +151,6 @@ if __name__ == "__main__":
     right_proc = spin_up_node("right", right_pos, None)
 
     left_proc.start()
-    right_proc.join()
+    right_proc.start()
     left_proc.join()
     right_proc.join()
