@@ -35,4 +35,6 @@ setup_venv() {
 setup_venv "$ENV1" "$REQ1"
 setup_venv "$ENV2" "$REQ2"
 
+ln -s cv-depth-segmentation/src/ransac ransac
+
 echo "All environments have been created successfully"

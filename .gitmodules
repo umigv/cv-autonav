@@ -1,0 +1,3 @@
+[submodule "cv-depth-segmentation"]
+	path = cv-depth-segmentation
+	url = https://github.com/umigv/cv-depth-segmentation
