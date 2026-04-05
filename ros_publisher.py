@@ -18,25 +18,24 @@
 #
 ########################################################################
 
-import pyzed.sl as sl
-from signal import signal, SIGINT
-import cv2
-import numpy as np
-import math
-
-from multiprocessing import Pool, Process
-
-import ransac as rsc
-
-from time import perf_counter
-
-# TODO! integrate all cv repos together
-
-# >>> ros2 change
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, MapMetaData
 from geometry_msgs.msg import PointStamped, Pose, Quaternion, Point
+import pyzed.sl as sl
+
+import cv2
+import math
+from multiprocessing import Pool, Process
+import numpy as np
+from time import perf_counter
+from signal import signal, SIGINT
+
+import cv_depth_segmentation.src.ransac as rsc
+
+# TODO! integrate all cv repos together
+
+# >>> ros2 change
 # <<< ros2 end of change
 
 
