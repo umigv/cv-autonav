@@ -92,13 +92,13 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
 
     # setup zed camera parameters
     init = sl.InitParameters()
+    if serial_number is not None:
+        init.set_from_serial_number(serial_number)
+
     init.async_image_retrieval = True
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.camera_resolution = sl.RESOLUTION.HD720  # try .VGA
     init.camera_fps = 30  # lower framerate to avoid issues
-    if serial_number is not None:
-        init.set_from_serial_number(serial_number)
-
     # setup ransac pipeline
     live = rsc.LiveSource(init, (720, 404))
     conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
