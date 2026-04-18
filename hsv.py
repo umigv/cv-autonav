@@ -399,3 +399,7 @@ class hsv:
     def set_YOLO_lanes(self, val: bool): self.YOLO_lanes = val
 
     def set_YOLO_barrels(self, val: bool): self.YOLO_barrels = val
+
+    def __call__(self, frame: np.ndarray) -> np.ndarray: # MaskMethod functor
+        combined, dict = self.get_mask(frame)
+        return dict["white"]
