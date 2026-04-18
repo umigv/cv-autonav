@@ -4,8 +4,15 @@ import os
 import json
 from ultralytics import YOLO
 
+try:
+    import pyzed.sl as sl
+    ZED_AVAILABLE = True
+except ImportError:
+    ZED_AVAILABLE = False
+
+
 class hsv:
-    def __init__(self, video_path):
+    def __init__(self, video_path, barrel_mode = "YOLO"):
         self.hsv_image = None
         self.hsv_filters = {}  # Map of filter names to HSV bounds
         self.setup = False
@@ -17,10 +24,10 @@ class hsv:
         self.barrel_boxes = None
         self.YOLO_lanes = False
         self.YOLO_barrels = False
-        self.barrel_model =  YOLO("/home/umarv/Documents/CV/cv-self-drive/obstacles.pt")
-        self.lane_model = YOLO("/home/umarv/Documents/CV/cv-self-drive/laneswithcontrast.pt")
+        self.barrel_model = YOLO("./data/obstacles.pt")
+        self.lane_model = YOLO("./data/laneswithcontrast.pt")
+        self.barrel_mode = barrel_mode # "YOLO" or "[filter name]"
         self.load_hsv_values()
-        
         
     def load_hsv_values(self):
         if os.path.exists('hsv_values.json'):
@@ -28,14 +35,19 @@ class hsv:
                 all_hsv_values = json.load(file)
                 self.hsv_filters = all_hsv_values.get(str(self.video_path), {})
         else:
-            # print("Matt put it in the wrong spot")
-            # Initialize with an empty filter map if the JSON file doesn't exist
             self.hsv_filters["white"] = {
                 'h_upper': 29, 'h_lower': 0,
                 's_upper': 51, 's_lower': 0,
                 'v_upper': 255, 'v_lower': 137
             }
-            # print(self.hsv_filters)
+
+        if "__ZED_SETTINGS__" not in self.hsv_filters:
+            self.hsv_filters["__ZED_SETTINGS__"] = {
+                "BRIGHTNESS": 1, "CONTRAST": 3,
+                "HUE": 0, "SATURATION": 3,
+                "SHARPNESS": 5, "GAMMA": 1
+            }
+            print("No __ZED_SETTINGS__ key found, using default values")
 
     def save_hsv_values(self):
         all_hsv_values = {}
@@ -94,8 +106,9 @@ class hsv:
             
     def __update_filter(self, filter_name, key, value):
         self.hsv_filters[filter_name][key] = value
-        _, filters = self.update_mask()
-        cv2.imshow("Mask", filters[filter_name])
+        if filter_name != "__ZED_SETTINGS__":
+            _, filters = self.update_mask()
+            cv2.imshow("Mask", filters[filter_name])
 
     def clear_filter(self, filter_name):
         if os.path.exists('hsv_values.json'):
@@ -120,28 +133,89 @@ class hsv:
             print("No HSV values file found.")
                 
     def get_barrels_YOLO(self):
-        # Get the driveable area of one frame and return the inverted mask
-        results = self.barrel_model.predict(self.image, conf=0.7)[0]
-        self.barrel_mask = np.zeros((self.image.shape[0], self.image.shape[1]), dtype=np.uint8)
-        if results.boxes is not None:
-            self.barrel_boxes = results.boxes.xyxyn
-        else:
-            self.barrel_boxes = None
-        if(results.masks is not None):
-            for i in range(len(results.masks.xy)):
-                    segment = results.masks.xy[i]
-                    segment_array = np.array([segment], dtype=np.int32)
-                    cv2.fillPoly(self.barrel_mask, [segment_array], color=(255, 0, 0))
-        return self.barrel_mask
+        if self.barrel_mode == "YOLO":
+            results = self.barrel_model.predict(self.image, conf=0.7)[0]
+            self.barrel_mask = np.zeros((self.image.shape[0], self.image.shape[1]), dtype=np.uint8)
+            if results.boxes is not None:
+                self.barrel_boxes = results.boxes.xyxyn
+            else:
+                self.barrel_boxes = None
+            if(results.masks is not None):
+                for i in range(len(results.masks.xy)):
+                        segment = results.masks.xy[i]
+                        segment_array = np.array([segment], dtype=np.int32)
+                        cv2.fillPoly(self.barrel_mask, [segment_array], color=(255, 0, 0))
+            return self.barrel_mask
+        else: # mimic barrel_boxes from YOLO and generate mask the same way
+            if not (self.barrel_mode in self.hsv_filters):
+                # assume they want an orange-like color (TODO: find a better default color)
+                self.hsv_filters[self.barrel_mode] = {
+                    'h_upper': 35, 'h_lower': 45,
+                    's_upper': 100, 's_lower': 80,
+                    'v_upper': 255, 'v_lower': 200
+                }
+
+            barrel_filter = self.hsv_filters[self.barrel_mode]
+            lower_bound = np.array([barrel_filter["h_lower"], barrel_filter['s_lower'], barrel_filter['v_lower']])
+            upper_bound = np.array([barrel_filter['h_upper'], barrel_filter['s_upper'], barrel_filter['v_upper']])
+            
+            mask = cv2.inRange(self.hsv_image, lower_bound, upper_bound)
+            mask = cv2.erode(mask, None, iterations=2)
+            mask = cv2.dilate(mask, None, iterations=4)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            barrel_boxes = []
+            width = self.hsv_image.shape[1]
+            height = self.hsv_image.shape[0]
+
+            self.barrel_mask = np.zeros((height, width), dtype=np.uint8)
+            for cnt in contours:
+                if cv2.contourArea(cnt) > 200:
+                    x_min = width - 1
+                    x_max = 0
+                    y_min = height - 1
+                    y_max = 0
+
+                    for point in cnt:
+                        x = point[0, 0]
+                        y = point[0, 1]
+                        
+                        if x < x_min:
+                            x_min = x
+                        if x > x_max:
+                            x_max = x
+                        if y < y_min:
+                            y_min = y
+                        if y > y_max:
+                            y_max = y
+
+                    current_box = [x_min / width, y_min / height, x_max / width, y_max / height] # these are normalized apparently
+                    barrel_boxes.append(current_box)
+                    cv2.drawContours(self.barrel_mask, [cnt], -1, 255, thickness=cv2.FILLED)
+
+            if not barrel_boxes:
+                self.barrel_boxes = None
+                # print(f"barrel_mode filter: {self.barrel_mode}")
+                # print(f"0 contours found")
+                # print()
+                return self.barrel_mask
+            else:
+                self.barrel_boxes = barrel_boxes
+                # print(f"barrel_mode filter: {self.barrel_mode}")
+                # print(f"{len(self.barrel_boxes)} contours found")
+                # print()
+                return self.barrel_mask
     
     def adjust_gamma(self, gamma=0.4):
         inv_gamma = 1.0 / gamma
         table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
         self.image = cv2.LUT(self.image, table)
         
-    def tune(self, filter_name):
+    def tune(self, filter_name, use_zed=False):
+        if filter_name == "__ZED_SETTINGS__":
+            print("To tune ZED settings, enter any of your filter names.")
+          
         if filter_name not in self.hsv_filters:
-            # Initialize default values for the new filter
             self.hsv_filters[filter_name] = {
                 'h_upper': 179, 'h_lower': 0,
                 's_upper': 255, 's_lower': 0,
@@ -149,50 +223,125 @@ class hsv:
             }
         filter_values = self.hsv_filters[filter_name]
         self.setup = True
-        cap = cv2.VideoCapture(self.video_path)
-        if not cap.isOpened():
-            print(f"Error: Unable to open video file {self.video_path}")
-            return
 
-        cv2.namedWindow('control pannel')
-        cv2.createTrackbar('H_upper', 'control pannel', filter_values['h_upper'], 179,
+        cv2.namedWindow('control panel', cv2.WINDOW_NORMAL)
+        cv2.createTrackbar('H_upper', 'control panel', filter_values['h_upper'], 179,
                            lambda v: self.__update_filter(filter_name, 'h_upper', v))
-        cv2.createTrackbar('H_lower', 'control pannel', filter_values['h_lower'], 179,
+        cv2.createTrackbar('H_lower', 'control panel', filter_values['h_lower'], 179,
                            lambda v: self.__update_filter(filter_name, 'h_lower', v))
-        cv2.createTrackbar('S_upper', 'control pannel', filter_values['s_upper'], 255,
+        cv2.createTrackbar('S_upper', 'control panel', filter_values['s_upper'], 255,
                            lambda v: self.__update_filter(filter_name, 's_upper', v))
-        cv2.createTrackbar('S_lower', 'control pannel', filter_values['s_lower'], 255,
+        cv2.createTrackbar('S_lower', 'control panel', filter_values['s_lower'], 255,
                            lambda v: self.__update_filter(filter_name, 's_lower', v))
-        cv2.createTrackbar('V_upper', 'control pannel', filter_values['v_upper'], 255,
+        cv2.createTrackbar('V_upper', 'control panel', filter_values['v_upper'], 255,
                            lambda v: self.__update_filter(filter_name, 'v_upper', v))
-        cv2.createTrackbar('V_lower', 'control pannel', filter_values['v_lower'], 255,
+        cv2.createTrackbar('V_lower', 'control panel', filter_values['v_lower'], 255,
                            lambda v: self.__update_filter(filter_name, 'v_lower', v))
-        cv2.createTrackbar('Done Tuning', 'control pannel', 0, 1, self.on_button_click)
+        if use_zed:
+            cv2.createTrackbar("BRIGHTNESS", 'control panel', self.hsv_filters["__ZED_SETTINGS__"]["BRIGHTNESS"], 8,
+                              lambda v: self.__update_filter("__ZED_SETTINGS__", "BRIGHTNESS", v))
+            
+            cv2.createTrackbar("CONTRAST", 'control panel', self.hsv_filters["__ZED_SETTINGS__"]["CONTRAST"], 8,
+                              lambda v: self.__update_filter("__ZED_SETTINGS__", "CONTRAST", v))
+            
+            cv2.createTrackbar("HUE", 'control panel', self.hsv_filters["__ZED_SETTINGS__"]["HUE"], 11,
+                              lambda v: self.__update_filter("__ZED_SETTINGS__", "HUE", v))
+            
+            cv2.createTrackbar("SATURATION", 'control panel', self.hsv_filters["__ZED_SETTINGS__"]["SATURATION"], 8,
+                              lambda v: self.__update_filter("__ZED_SETTINGS__", "SATURATION", v))
+            
+            cv2.createTrackbar("SHARPNESS", 'control panel', self.hsv_filters["__ZED_SETTINGS__"]["SHARPNESS"], 8,
+                              lambda v: self.__update_filter("__ZED_SETTINGS__", "SHARPNESS", v))
+            
+            cv2.createTrackbar("GAMMA", 'control panel', self.hsv_filters["__ZED_SETTINGS__"]["GAMMA"], 9,
+                              lambda v: self.__update_filter("__ZED_SETTINGS__", "GAMMA", v))
+            cv2.setTrackbarMin("GAMMA", 'control panel', 1)
+        
+        cv2.createTrackbar('Done Tuning', 'control panel', 0, 1, self.on_button_click)
 
+        # Handle ZED Initialization
+        if use_zed:
+            if not ZED_AVAILABLE:
+                print("Warning: ZED SDK (pyzed) not installed. Falling back to OpenCV. Trackbars will still change ZED settings.")
+                use_zed = False
+            else:
+                zed = sl.Camera()
+                init_params = sl.InitParameters()
+                # If they passed an SVO video file instead of a live camera index
+                if isinstance(self.video_path, str) and self.video_path.endswith('.svo'):
+                    init_params.set_from_svo_file(self.video_path)
+                    init_params.svo_real_time_mode = False
+                
+                err = zed.open(init_params)
+                if err != sl.ERROR_CODE.SUCCESS:
+                    print(f"Error opening ZED Camera: {err}")
+                    return
+                
+                zed_params = self.hsv_filters["__ZED_SETTINGS__"]
+                
+                print("Applying custom ZED video settings...")
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.BRIGHTNESS, zed_params["BRIGHTNESS"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.CONTRAST, zed_params["CONTRAST"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.HUE, zed_params["HUE"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.SATURATION, zed_params["SATURATION"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.SHARPNESS, zed_params["SHARPNESS"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.GAMMA, zed_params["GAMMA"])
+                
+                image_zed = sl.Mat()
+
+        if not use_zed:
+            cap = cv2.VideoCapture(self.video_path)
+            if not cap.isOpened():
+                print(f"Error: Unable to open video file {self.video_path}")
+                return
+
+        # Main Tuning Loop
         while self.setup:
-            ret, frame = cap.read()
-            if not ret:
-                # If the video ends, reset to the beginning
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                continue
+            if use_zed:
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.BRIGHTNESS, zed_params["BRIGHTNESS"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.CONTRAST, zed_params["CONTRAST"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.HUE, zed_params["HUE"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.SATURATION, zed_params["SATURATION"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.SHARPNESS, zed_params["SHARPNESS"])
+                zed.set_camera_settings(sl.VIDEO_SETTINGS.GAMMA, zed_params["GAMMA"])
+                err = zed.grab()
+                if err == sl.ERROR_CODE.SUCCESS:
+                    zed.retrieve_image(image_zed, sl.VIEW.LEFT)
+                    # ZED returns BGRA, so we strip the Alpha channel for OpenCV compatibility
+                    frame = image_zed.get_data()
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                elif err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
+                    zed.set_svo_position(0)
+                    continue
+                else:
+                    break
+            else:
+                ret, frame = cap.read()
+                if not ret:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
+
             self.image = frame
             self.adjust_gamma()
             self.hsv_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
-            mask, dict = self.update_mask()
+            mask, dict_masks = self.update_mask()
 
             cv2.imshow('Video', frame)
-            cv2.imshow('Mask', dict[filter_name])
+            cv2.imshow('Mask', dict_masks[filter_name])
 
             key = cv2.waitKey(1) & 0xFF
             if key == 27:  # Press 'Esc' to exit the loop
                 break
 
-        cap.release()
+        if use_zed:
+            zed.close()
+        else:
+            cap.release()
+            
         cv2.destroyAllWindows()
         self.save_hsv_values()
 
     def get_lane_lines_YOLO(self):
-        # Get the driveable area of one frame and return the inverted mask
         results = self.lane_model.predict(self.image, conf=0.7)[0]
         laneline_mask = np.zeros((self.image.shape[0], self.image.shape[1]), dtype=np.uint8)
         if(results.masks is not None):
@@ -207,13 +356,16 @@ class hsv:
         masks = {}
 
         for filter_name, bounds in self.hsv_filters.items():
+            if filter_name == "__ZED_SETTINGS__":
+                continue
+
             lower_bound = np.array([bounds["h_lower"], bounds['s_lower'], bounds['v_lower']])
             upper_bound = np.array([bounds['h_upper'], bounds['s_upper'], bounds['v_upper']])
             mask = cv2.inRange(self.hsv_image, lower_bound, upper_bound)
             mask = cv2.erode(mask, None, iterations=2)
             mask = cv2.dilate(mask, None, iterations=4)
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            min_area = 200 # Adjust based on noise size
+            min_area = 200 
             final = np.zeros_like(mask)
             for cnt in contours:
                 if cv2.contourArea(cnt) > min_area:
@@ -222,7 +374,7 @@ class hsv:
             if filter_name == "white" and self.YOLO_lanes:
                 lane_line_mask = self.get_lane_lines_YOLO()
                 final = cv2.bitwise_or(final, lane_line_mask)
-            # Combine masks
+            
             if combined_mask is None:
                 combined_mask = final
             else:
@@ -236,10 +388,18 @@ class hsv:
 
         return combined_mask, masks
         
-    def get_mask(self, frame, yolo_lanes=False, yolo_barrels=False):
-        self.YOLO_lanes = yolo_lanes
-        self.YOLO_barrels = yolo_barrels
+    def get_mask(self, frame):
+        # self.YOLO_lanes = yolo_lanes
+        # self.YOLO_barrels = yolo_barrels
         self.image = frame
         self.adjust_gamma()
         self.hsv_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
         return self.update_mask()
+    
+    def set_YOLO_lanes(self, val: bool): self.YOLO_lanes = val
+
+    def set_YOLO_barrels(self, val: bool): self.YOLO_barrels = val
+
+    def __call__(self, frame: np.ndarray) -> np.ndarray: # MaskMethod functor
+        combined, dict = self.get_mask(frame)
+        return dict["white"]
