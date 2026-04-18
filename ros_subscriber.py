@@ -51,8 +51,8 @@ class GridMerger(Node):
             a = b
 
         merged = np.full_like(a, -1)
-        free = (a == 0) | (b == 0)
-        occ = ((a == 100) | (b == 100)) & (~free)
+        occ = (a == 100) | (b == 100)
+        free = ((a == 0) | (b == 0)) & ~occ
 
         merged[free] = 0
         merged[occ] = 100
