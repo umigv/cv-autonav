@@ -26,6 +26,7 @@ import pyzed.sl as sl
 
 import cv2
 import math
+from hsv import hsv
 from multiprocessing import Pool, Process
 import numpy as np
 from time import perf_counter
@@ -43,7 +44,7 @@ class OccGridPublisher(Node):
     def __init__(self, side: str, conf: rsc.GridConfiguration):
         super().__init__(f"occ_grid_publisher_{side}")
         self.pub = self.create_publisher(
-            OccupancyGrid, f"occupancy_grid/{side}", 10)
+            OccupancyGrid, f"occupancy_grid/raw", 10)
         self.width = int(conf.gw // conf.cw)
         self.height = int(conf.gh // conf.cw)
         self.resolution = conf.cw / 1000.0
@@ -101,7 +102,7 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
     # setup ransac pipeline
     live = rsc.LiveSource(init, (720, 404))
     conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
-    depseg = rsc.DepthSegementation([(live, cam_pos)], conf)
+    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv("ZED"))
 
     # configure ROS publisher
 
@@ -143,13 +144,10 @@ def spin_up_node(side: str, pos: rsc.CameraPosition, ser: int | None):
 
 
 if __name__ == "__main__":
-    left_pos =  rsc.CameraPosition(-100, 60, 0.4363323129985824)
-    right_pos = rsc.CameraPosition(105, 60, -0.4363323129985824)
+    pos = rsc.CameraPosition(0, 60, 0.0)
 
-    left_proc = spin_up_node("left", left_pos, 39394535)
-    right_proc = spin_up_node("right", right_pos, 36466710)
 
-    left_proc.start()
-    right_proc.start()
-    left_proc.join()
-    right_proc.join()
+    proc = spin_up_node("right", pos, 39394535) #36466710 is right camera, 39394535 is left camera
+
+    proc.start()
+    proc.join()

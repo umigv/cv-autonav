@@ -1,0 +1,38 @@
+{
+    "1": {
+        "white": {
+            "h_upper": 179,
+            "h_lower": 0,
+            "s_upper": 227,
+            "s_lower": 0,
+            "v_upper": 255,
+            "v_lower": 105
+        },
+        "__ZED_SETTINGS__": {
+            "BRIGHTNESS": 1,
+            "CONTRAST": 3,
+            "HUE": 0,
+            "SATURATION": 3,
+            "SHARPNESS": 5,
+            "GAMMA": 1
+        }
+    },
+    "ZED": {
+        "__ZED_SETTINGS__": {
+            "BRIGHTNESS": 3,
+            "CONTRAST": 5,
+            "HUE": 0,
+            "SATURATION": 6,
+            "SHARPNESS": 8,
+            "GAMMA": 1
+        },
+        "white": {
+            "h_upper": 179,
+            "h_lower": 0,
+            "s_upper": 255,
+            "s_lower": 143,
+            "v_upper": 255,
+            "v_lower": 147
+        }
+    }
+}

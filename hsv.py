@@ -24,8 +24,8 @@ class hsv:
         self.barrel_boxes = None
         self.YOLO_lanes = False
         self.YOLO_barrels = False
-        self.barrel_model = YOLO("./data/obstacles.pt")
-        self.lane_model = YOLO("./data/laneswithcontrast.pt")
+        self.barrel_model = YOLO("models/obstacles.pt")
+        self.lane_model = YOLO("models/laneswithcontrast.pt")
         self.barrel_mode = barrel_mode # "YOLO" or "[filter name]"
         self.load_hsv_values()
         
