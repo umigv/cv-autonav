@@ -18,9 +18,9 @@ class GridMerger(Node):
         self.last2 = 0
 
         self.create_subscription(
-            OccupancyGrid, 'occupancy_grid/left', self.cb1, 10)
+            OccupancyGrid, 'occupancy_grid/raw_left', self.cb1, 10)
         self.create_subscription(
-            OccupancyGrid, 'occupancy_grid/right', self.cb2, 10)
+            OccupancyGrid, 'occupancy_grid/raw_right', self.cb2, 10)
         self.pub = self.create_publisher(
             OccupancyGrid, 'occupancy_grid/raw', 10)
 
