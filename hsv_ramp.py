@@ -214,6 +214,9 @@ class hsv:
         masks = {}
 
         for filter_name, bounds in self.hsv_filters.items():
+            if not all(k in bounds for k in ('h_lower', 'h_upper', 's_lower', 's_upper', 'v_lower', 'v_upper')):
+                continue
+
             lower_bound = np.array([bounds["h_lower"], bounds['s_lower'], bounds['v_lower']])
             upper_bound = np.array([bounds['h_upper'], bounds['s_upper'], bounds['v_upper']])
             mask = cv2.inRange(self.hsv_image, lower_bound, upper_bound)
