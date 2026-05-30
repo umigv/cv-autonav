@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import os
 import json
-from ultralytics import YOLO
 
 class hsv_ramp:
     def __init__(self, video_path):
@@ -11,16 +10,9 @@ class hsv_ramp:
         self.setup = False
         self.image = None
         self.final = None
-        self.barrel = False
         self.video_path = video_path
-        self.barrel_mask = None
-        self.barrel_boxes = None
-        self.barrel_model =  YOLO("data/obstacles.pt")
-        self.lane_model = YOLO("data/laneswithcontrast.pt")
         self.cap = cv2.VideoCapture(video_path)
 
-        self.YOLO_barrels = False
-        self.YOLO_lanes = False
         self.load_hsv_values()
 
 
@@ -118,21 +110,6 @@ class hsv_ramp:
         else:
             print("No HSV values file found.")
 
-    def get_barrels_YOLO(self):
-        # Get the driveable area of one frame and return the inverted mask
-        results = self.barrel_model.predict(self.image, conf=0.7)[0]
-        self.barrel_mask = np.zeros((self.image.shape[0], self.image.shape[1]), dtype=np.uint8)
-        if results.boxes is not None:
-            self.barrel_boxes = results.boxes.xyxyn
-        else:
-            self.barrel_boxes = None
-        if(results.masks is not None):
-            for i in range(len(results.masks.xy)):
-                    segment = results.masks.xy[i]
-                    segment_array = np.array([segment], dtype=np.int32)
-                    cv2.fillPoly(self.barrel_mask, [segment_array], color=(255, 0, 0))
-        return self.barrel_mask
-
     def adjust_gamma(self, gamma=0.4):
         inv_gamma = 1.0 / gamma
         table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
@@ -198,7 +175,6 @@ class hsv_ramp:
         cv2.destroyAllWindows()
         self.save_hsv_values()
 
-    def get_lane_lines_YOLO(self):
         # Get the driveable area of one frame and return the inverted mask
         results = self.lane_model.predict(self.image, conf=0.7)[0]
         laneline_mask = np.zeros((self.image.shape[0], self.image.shape[1]), dtype=np.uint8)
@@ -229,26 +205,12 @@ class hsv_ramp:
                 if cv2.contourArea(cnt) > min_area:
                     cv2.drawContours(final, [cnt], -1, 255, thickness=cv2.FILLED)
 
-            if filter_name == "white" and self.YOLO_lanes:
-                lane_line_mask = self.get_lane_lines_YOLO()
-                final = cv2.bitwise_or(final, lane_line_mask)
-            # Combine masks
-            if combined_mask is None:
-                combined_mask = final
-            else:
-                combined_mask = cv2.bitwise_or(combined_mask, final)
 
             masks[filter_name] = final
 
-        if self.YOLO_barrels:
-            barrels = self.get_barrels_YOLO()
-            combined_mask = cv2.bitwise_or(combined_mask, barrels)
-
         return combined_mask, masks
 
-    def get_mask(self, frame, yolo_lanes=False, yolo_barrels=False):
-        self.YOLO_lanes = yolo_lanes
-        self.YOLO_barrels = yolo_barrels
+    def get_mask(self, frame):
         self.image = frame
         self.adjust_gamma()
         self.hsv_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
