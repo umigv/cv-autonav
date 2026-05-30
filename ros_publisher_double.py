@@ -27,6 +27,7 @@ import pyzed.sl as sl
 import cv2
 import math
 from hsv import hsv
+from hsv_ramp import hsv_ramp
 from multiprocessing import Pool, Process
 import numpy as np
 from time import perf_counter
@@ -117,7 +118,7 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
     hsv_obj.set_YOLO_lanes(True)
 
     conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
-    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv_obj)
+    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv("ZED"), ignore_mask=hsv_ramp("output.mp4"))
 
     # configure ROS publisher
 
