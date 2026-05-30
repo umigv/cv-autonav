@@ -194,7 +194,7 @@ class hsv:
             if key == 27:  # Press 'Esc' to exit the loop
                 break
 
-        cap.release()
+        self.cap.release()
         cv2.destroyAllWindows()
         self.save_hsv_values()
 
@@ -253,38 +253,9 @@ class hsv:
         self.adjust_gamma()
         self.hsv_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
         return self.update_mask()
+    
+    def __call__(self, frame: np.ndarray) -> np.ndarray: # MaskMethod functor
+        dict = self.get_mask(frame)
+        return dict["white"]
 
 
-#orig in hsv_values.json:
-'''
-"data/ramp.MOV": {
-        "ramp_color": {
-            "h_upper": 66,
-            "h_lower": 15,
-            "s_upper": 213,
-            "s_lower": 56,
-            "v_upper": 255,
-            "v_lower": 77
-        }
-    },
-    "data/ramp1.MOV": {
-        "ramp_color": {
-            "h_upper": 103,
-            "h_lower": 42,
-            "s_upper": 98,
-            "s_lower": 0,
-            "v_upper": 255,
-            "v_lower": 207
-        }
-    },
-    "green-reference": {
-        "ramp_color": {
-            "h_upper": 107,
-            "h_lower": 61,
-            "s_upper": 151,
-            "s_lower": 61,
-            "v_upper": 231,
-            "v_lower": 120
-        }
-    },
-'''
