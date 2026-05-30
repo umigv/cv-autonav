@@ -3,7 +3,7 @@ import os
 import cv2
 import numpy as np
 
-from hsv_ramp import hsv
+from hsv_ramp import hsv_ramp
 
 class NoMansLand:
     def __init__(self, debug = False):
@@ -21,7 +21,7 @@ class NoMansLand:
     def update_mask(self):
         #defining the ranges for HSV values
         self.final, dict = self.hsv_obj.get_mask(self.image)
-        
+
         self.ramp_mask = dict["ramp_color"]
 
     def is_ramp_visible(self):
@@ -37,13 +37,13 @@ class NoMansLand:
             if (area > min_area) and (area > max_found):
                 max_found = area
                 best_cnt = cnt
-        
+
         if best_cnt is not None:
             self.ramp_cnt = best_cnt
             return True
-        else:  
+        else:
             return False
-            
+
     def magnitude_of_scalar_projection(self, of: tuple[float, float], onto: tuple[float, float]):
         onto_mag = ((onto[0] ** 2) + (onto[1] ** 2)) ** 0.5
         of_dot_onto = (of[0] * onto[0]) + (of[1] * onto[1])
@@ -105,8 +105,8 @@ class NoMansLand:
                 most_tr_point = (int(x), int(y))
 
         return most_bl_point, most_br_point, most_tl_point, most_tr_point
-            
-    
+
+
     def state_1(self): # can't see ramp
         self.centroid = (self.width // 2, 40)
 
@@ -160,7 +160,7 @@ class NoMansLand:
         if not cap.isOpened():
             raise FileNotFoundError(f"Could not open video at:\n  {local_path}\n  {root_path}")
 
-        self.hsv_obj = hsv(path)  # ← fixed
+        self.hsv_obj = hsv_ramp(path)  # ← fixed
         self.hsv_obj.tune("ramp_color")
 
         # green reference
@@ -175,9 +175,9 @@ class NoMansLand:
 
         # you need a JSON entry with the same name as your video to use this
         # you can rename the "green-reference" entry to your video temporarily to tune it
-                    
+
         while cap.isOpened():
-            try: 
+            try:
                 ret, self.image = cap.read()
                 self.height, self.width, _ = self.image.shape
             except AttributeError:
@@ -201,14 +201,14 @@ class NoMansLand:
 
         self.cap.release()
         cv2.destroyAllWindows()
-            
+
     def run_frame(self, frame, hsv_indentifier):
         if self.hsv_obj is None:
             self.hsv_obj = hsv(hsv_indentifier)
-            
+
         self.image = frame
         self.height, self.width, _ = self.image.shape
-        
+
         self.update_mask()
         self.state_machine()
 

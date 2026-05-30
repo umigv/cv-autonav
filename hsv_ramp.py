@@ -4,7 +4,7 @@ import os
 import json
 from ultralytics import YOLO
 
-class hsv:
+class hsv_ramp:
     def __init__(self, video_path):
         self.hsv_image = None
         self.hsv_filters = {}  # Map of filter names to HSV bounds
@@ -22,8 +22,8 @@ class hsv:
         self.YOLO_barrels = False
         self.YOLO_lanes = False
         self.load_hsv_values()
-        
-        
+
+
     def load_hsv_values(self):
         json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hsv_values.json')
         key = os.path.basename(self.video_path)
@@ -85,11 +85,11 @@ class hsv:
             self.v_lower = self.v_upper
         self.update_mask()
         cv2.imshow("Mask", self.final)
-        
+
     def on_button_click(self, value):
         if(value == 1):
             self.setup = False
-            
+
     def __update_filter(self, filter_name, key, value):
         print(type(self.hsv_filters), self.hsv_filters) # Debugging line to check the type and content of hsv_filters
         self.hsv_filters[filter_name][key] = value
@@ -117,7 +117,7 @@ class hsv:
                 print(f"Video '{self.video_path}' does not exist in the JSON file.")
         else:
             print("No HSV values file found.")
-                
+
     def get_barrels_YOLO(self):
         # Get the driveable area of one frame and return the inverted mask
         results = self.barrel_model.predict(self.image, conf=0.7)[0]
@@ -132,12 +132,12 @@ class hsv:
                     segment_array = np.array([segment], dtype=np.int32)
                     cv2.fillPoly(self.barrel_mask, [segment_array], color=(255, 0, 0))
         return self.barrel_mask
-    
+
     def adjust_gamma(self, gamma=0.4):
         inv_gamma = 1.0 / gamma
         table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
         self.image = cv2.LUT(self.image, table)
-        
+
     def tune(self, filter_name):
         if filter_name not in self.hsv_filters:
             self.hsv_filters[filter_name] = {
@@ -208,7 +208,7 @@ class hsv:
                     segment_array = np.array([segment], dtype=np.int32)
                     cv2.fillPoly(laneline_mask, [segment_array], color=(255, 0, 0))
         return laneline_mask
-        
+
     def update_mask(self):
         combined_mask = None
         masks = {}
@@ -245,7 +245,7 @@ class hsv:
             combined_mask = cv2.bitwise_or(combined_mask, barrels)
 
         return combined_mask, masks
-        
+
     def get_mask(self, frame, yolo_lanes=False, yolo_barrels=False):
         self.YOLO_lanes = yolo_lanes
         self.YOLO_barrels = yolo_barrels
@@ -253,7 +253,7 @@ class hsv:
         self.adjust_gamma()
         self.hsv_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
         return self.update_mask()
-    
+
     def __call__(self, frame: np.ndarray) -> np.ndarray: # MaskMethod functor
         dict = self.get_mask(frame)
         return dict["white"]
