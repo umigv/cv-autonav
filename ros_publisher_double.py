@@ -100,9 +100,24 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
     init.camera_resolution = sl.RESOLUTION.HD720  # try .VGA
     init.camera_fps = 30  # lower framerate to avoid issues
     # setup ransac pipeline
+    hsv_obj = hsv("ZED")
     live = rsc.LiveSource(init, (720, 404))
+
+    # Apply the same ZED camera settings used during HSV tuning so the image
+    # seen by the HSV filter matches what the parameters were tuned against.
+    zed_settings = hsv_obj.hsv_filters.get("__ZED_SETTINGS__", {})
+    if zed_settings:
+        live.cam.set_camera_settings(sl.VIDEO_SETTINGS.BRIGHTNESS, zed_settings["BRIGHTNESS"])
+        live.cam.set_camera_settings(sl.VIDEO_SETTINGS.CONTRAST,   zed_settings["CONTRAST"])
+        live.cam.set_camera_settings(sl.VIDEO_SETTINGS.HUE,        zed_settings["HUE"])
+        live.cam.set_camera_settings(sl.VIDEO_SETTINGS.SATURATION, zed_settings["SATURATION"])
+        live.cam.set_camera_settings(sl.VIDEO_SETTINGS.SHARPNESS,  zed_settings["SHARPNESS"])
+        live.cam.set_camera_settings(sl.VIDEO_SETTINGS.GAMMA,      zed_settings["GAMMA"])
+
+    hsv_obj.set_YOLO_lanes(True)
+
     conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
-    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv("ZED"))
+    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv_obj)
 
     # configure ROS publisher
 
@@ -144,8 +159,8 @@ def spin_up_node(side: str, pos: rsc.CameraPosition, ser: int | None):
 
 
 if __name__ == "__main__":
-    left_pos =  rsc.CameraPosition(-100, 60, 0.4363323129985824)
-    right_pos = rsc.CameraPosition(105, 60, -0.4363323129985824)
+    left_pos =  rsc.CameraPosition(-240, 50, 0.08726646259971647)
+    right_pos = rsc.CameraPosition(105, 30, -0.2617993877991494)
 
 
     left_proc = spin_up_node("left", left_pos, 39394535)

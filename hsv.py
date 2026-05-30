@@ -267,11 +267,13 @@ class hsv:
             else:
                 zed = sl.Camera()
                 init_params = sl.InitParameters()
+                init_params.camera_resolution = sl.RESOLUTION.HD720
                 # If they passed an SVO video file instead of a live camera index
                 if isinstance(self.video_path, str) and self.video_path.endswith('.svo'):
                     init_params.set_from_svo_file(self.video_path)
                     init_params.svo_real_time_mode = False
                 
+                init_params.camera_fps = 30
                 err = zed.open(init_params)
                 if err != sl.ERROR_CODE.SUCCESS:
                     print(f"Error opening ZED Camera: {err}")
@@ -306,8 +308,7 @@ class hsv:
                 zed.set_camera_settings(sl.VIDEO_SETTINGS.GAMMA, zed_params["GAMMA"])
                 err = zed.grab()
                 if err == sl.ERROR_CODE.SUCCESS:
-                    zed.retrieve_image(image_zed, sl.VIEW.LEFT)
-                    # ZED returns BGRA, so we strip the Alpha channel for OpenCV compatibility
+                    zed.retrieve_image(image_zed, sl.VIEW.LEFT, sl.MEM.CPU, sl.Resolution(720, 404))
                     frame = image_zed.get_data()
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 elif err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
@@ -342,14 +343,20 @@ class hsv:
         self.save_hsv_values()
 
     def get_lane_lines_YOLO(self):
-        results = self.lane_model.predict(self.image, conf=0.7)[0]
+        results = self.lane_model.predict(self.image, conf=0.9)[0]
         laneline_mask = np.zeros((self.image.shape[0], self.image.shape[1]), dtype=np.uint8)
         if(results.masks is not None):
             for i in range(len(results.masks.xy)):
                     segment = results.masks.xy[i]
                     segment_array = np.array([segment], dtype=np.int32)
                     cv2.fillPoly(laneline_mask, [segment_array], color=(255, 0, 0))
-        return laneline_mask
+        contours, _ = cv2.findContours(laneline_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        min_area = 200 
+        laneline_final = np.zeros_like(laneline_mask)
+        for cnt in contours:
+            if cv2.contourArea(cnt) > min_area:
+                cv2.drawContours(laneline_final, [cnt], -1, 255, thickness=cv2.FILLED)
+        return laneline_final
         
     def update_mask(self):
         combined_mask = None
@@ -391,6 +398,10 @@ class hsv:
     def get_mask(self, frame):
         # self.YOLO_lanes = yolo_lanes
         # self.YOLO_barrels = yolo_barrels
+        if frame.ndim == 3 and frame.shape[2] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+        frame = cv2.resize(frame, (720, 404))
         self.image = frame
         self.adjust_gamma()
         self.hsv_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)

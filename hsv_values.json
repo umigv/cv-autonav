@@ -19,20 +19,20 @@
     },
     "ZED": {
         "__ZED_SETTINGS__": {
-            "BRIGHTNESS": 3,
-            "CONTRAST": 5,
+            "BRIGHTNESS": 0,
+            "CONTRAST": 6,
             "HUE": 0,
-            "SATURATION": 6,
-            "SHARPNESS": 8,
+            "SATURATION": 5,
+            "SHARPNESS": 0,
             "GAMMA": 1
         },
         "white": {
             "h_upper": 179,
             "h_lower": 0,
-            "s_upper": 255,
-            "s_lower": 143,
+            "s_upper": 207,
+            "s_lower": 0,
             "v_upper": 255,
-            "v_lower": 147
+            "v_lower": 69
         }
     }
 }
