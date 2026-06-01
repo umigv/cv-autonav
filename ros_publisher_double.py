@@ -22,6 +22,7 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, MapMetaData
 from geometry_msgs.msg import PointStamped, Pose, Quaternion, Point
+from std_msgs.msg import Bool
 import pyzed.sl as sl
 
 import cv2
@@ -49,6 +50,14 @@ class OccGridPublisher(Node):
         self.width = int(conf.gw // conf.cw)
         self.height = int(conf.gh // conf.cw)
         self.resolution = conf.cw / 1000.0
+
+        # HSV lane masking can be toggled at runtime (e.g. disabled in
+        # no man's land). Defaults to enabled until told otherwise.
+        self.hsv_enabled = True
+        self.create_subscription(Bool, "hsv_enabled", self._hsv_enabled_cb, 10)
+
+    def _hsv_enabled_cb(self, msg):
+        self.hsv_enabled = msg.data
 
     def publish(self, grid_np):
         msg = OccupancyGrid()
@@ -124,7 +133,9 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
         hsv_iden = "RIGHT_ZED"
 
     conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
-    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv(hsv_iden), ignore_mask=hsv_ramp("ZED_RAMP"))
+    hsv_mask = hsv(hsv_iden)
+    no_mask = rsc.NoMask()
+    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv_mask)
 
     # configure ROS publisher
 
@@ -137,6 +148,10 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
 
         if not live.update():
             break
+
+        # Apply latest hsv_enabled toggle (NoMask disables lane masking,
+        # leaving the RANSAC obstacle mask untouched).
+        depseg.mask_method = hsv_mask if occ_node.hsv_enabled else no_mask
 
         updated = depseg.process()
         if not updated:
