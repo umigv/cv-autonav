@@ -7,6 +7,7 @@ from scipy.ndimage import label
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
+from std_msgs.msg import String
 
 
 class GridMerger(Node):
@@ -17,11 +18,14 @@ class GridMerger(Node):
         self.grid2 = None
         self.last1 = 0
         self.last2 = 0
+        self.state = 'normal'
 
         self.create_subscription(
             OccupancyGrid, 'occupancy_grid/raw_left', self.cb1, 10)
         self.create_subscription(
             OccupancyGrid, 'occupancy_grid/raw_right', self.cb2, 10)
+        self.create_subscription(
+            String, 'state', self.state_cb, 10)
         self.pub = self.create_publisher(
             OccupancyGrid, 'occupancy_grid/raw', 10)
 
@@ -39,8 +43,22 @@ class GridMerger(Node):
             self.grid1 = msg
         self.try_publish()
 
+    def state_cb(self, msg):
+        self.state = msg.data
+        self.try_publish()
+
     def try_publish(self):
         if self.grid1 is None or self.grid2 is None:
+            return
+
+        if self.state == 'ramp':
+            ref = self.grid1
+            out = OccupancyGrid()
+            out.header.stamp = self.get_clock().now().to_msg()
+            out.header.frame_id = ref.header.frame_id
+            out.info = ref.info
+            out.data = [0] * (ref.info.width * ref.info.height)
+            self.pub.publish(out)
             return
 
         a = np.array(self.grid1.data, dtype=np.int8)
