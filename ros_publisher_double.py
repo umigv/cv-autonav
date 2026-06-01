@@ -117,8 +117,14 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
 
     # hsv_obj.set_YOLO_lanes(True)
 
+    hsv_iden = None
+    if serial_number == 39394535:
+        hsv_iden = "LEFT_ZED"
+    else:
+        hsv_iden = "RIGHT_ZED"
+
     conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
-    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv("ZED"), ignore_mask=hsv_ramp("ZED_RAMP"))
+    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv(hsv_iden), ignore_mask=hsv_ramp("ZED_RAMP"))
 
     # configure ROS publisher
 

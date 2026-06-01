@@ -60,5 +60,41 @@
             "v_upper": 19,
             "v_lower": 0
         }
+    },
+    "RIGHT_ZED": {
+        "__ZED_SETTINGS__": {
+            "BRIGHTNESS": 0,
+            "CONTRAST": 6,
+            "HUE": 0,
+            "SATURATION": 8,
+            "SHARPNESS": 0,
+            "GAMMA": 1
+        },
+        "white": {
+            "h_upper": 179,
+            "h_lower": 0,
+            "s_upper": 166,
+            "s_lower": 0,
+            "v_upper": 255,
+            "v_lower": 65
+        }
+    },
+    "LEFT_ZED": {
+        "__ZED_SETTINGS__": {
+            "BRIGHTNESS": 0,
+            "CONTRAST": 6,
+            "HUE": 0,
+            "SATURATION": 8,
+            "SHARPNESS": 0,
+            "GAMMA": 1
+        },
+        "white": {
+            "h_upper": 179,
+            "h_lower": 0,
+            "s_upper": 154,
+            "s_lower": 0,
+            "v_upper": 255,
+            "v_lower": 37
+        }
     }
 }

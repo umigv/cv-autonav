@@ -108,7 +108,8 @@ class hsv:
         self.hsv_filters[filter_name][key] = value
         if filter_name != "__ZED_SETTINGS__":
             _, filters = self.update_mask()
-            cv2.imshow("Mask", filters[filter_name])
+            if filters and filter_name in filters:
+                cv2.imshow("Mask", filters[filter_name])
 
     def clear_filter(self, filter_name):
         if os.path.exists('hsv_values.json'):
@@ -359,6 +360,9 @@ class hsv:
         return laneline_final
         
     def update_mask(self):
+        if self.hsv_image is None:
+            return None, {}
+
         combined_mask = None
         masks = {}
 
