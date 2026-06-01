@@ -3,6 +3,7 @@
 import time
 import numpy as np
 from typing import cast
+from scipy.ndimage import label
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
@@ -52,6 +53,17 @@ class GridMerger(Node):
 
         merged = np.full_like(a, -1)
         occ = (a == 100) | (b == 100)
+
+        width = self.grid1.info.width
+        height = self.grid1.info.height
+        occ_2d = occ.reshape(height, width)
+        labeled, num_features = label(occ_2d)
+        if num_features > 0:
+            sizes = np.bincount(labeled.ravel())
+            small = np.where((sizes < 20) & (np.arange(len(sizes)) > 0))[0]
+            occ_2d[np.isin(labeled, small)] = False
+        occ = occ_2d.ravel()
+
         free = ((a == 0) | (b == 0)) & ~occ
 
         merged[free] = 0

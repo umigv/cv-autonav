@@ -217,7 +217,7 @@ class hsv_ramp:
         return self.update_mask()
 
     def __call__(self, frame: np.ndarray) -> np.ndarray: # MaskMethod functor
-        dict = self.get_mask(frame)
-        return dict["white"]
+        _, dict = self.get_mask(frame)
+        return dict["ramp_color"]
 
 

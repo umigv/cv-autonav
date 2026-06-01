@@ -22,21 +22,21 @@
             "BRIGHTNESS": 0,
             "CONTRAST": 6,
             "HUE": 0,
-            "SATURATION": 5,
+            "SATURATION": 8,
             "SHARPNESS": 0,
             "GAMMA": 1
         },
         "white": {
             "h_upper": 179,
             "h_lower": 0,
-            "s_upper": 207,
+            "s_upper": 141,
             "s_lower": 0,
             "v_upper": 255,
-            "v_lower": 69
+            "v_lower": 74
         }
     },
-    "output.mp4": {
-       "ramp_color": {
+    "ZED_RAMP": {
+        "ramp_color": {
             "h_upper": 116,
             "h_lower": 58,
             "s_upper": 195,
@@ -53,12 +53,12 @@
             "GAMMA": 1
         },
         "white": {
-            "h_upper": 116,
-            "h_lower": 58,
-            "s_upper": 195,
-            "s_lower": 33,
-            "v_upper": 70,
-            "v_lower": 14
+            "h_upper": 179,
+            "h_lower": 42,
+            "s_upper": 202,
+            "s_lower": 22,
+            "v_upper": 19,
+            "v_lower": 0
         }
     }
 }

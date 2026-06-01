@@ -115,10 +115,10 @@ def run_ransac_on_zed(side: str, cam_pos=rsc.CameraPosition(), serial_number=Non
         live.cam.set_camera_settings(sl.VIDEO_SETTINGS.SHARPNESS,  zed_settings["SHARPNESS"])
         live.cam.set_camera_settings(sl.VIDEO_SETTINGS.GAMMA,      zed_settings["GAMMA"])
 
-    hsv_obj.set_YOLO_lanes(True)
+    # hsv_obj.set_YOLO_lanes(True)
 
     conf = rsc.GridConfiguration(5000.0, 5000.0, 50.0)
-    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv("ZED"), ignore_mask=hsv_ramp("output.mp4"))
+    depseg = rsc.DepthSegementation([(live, cam_pos)], conf, mask_method=hsv("ZED"), ignore_mask=hsv_ramp("ZED_RAMP"))
 
     # configure ROS publisher
 

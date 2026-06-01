@@ -351,7 +351,7 @@ class hsv:
                     segment_array = np.array([segment], dtype=np.int32)
                     cv2.fillPoly(laneline_mask, [segment_array], color=(255, 0, 0))
         contours, _ = cv2.findContours(laneline_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        min_area = 200 
+        min_area = 800
         laneline_final = np.zeros_like(laneline_mask)
         for cnt in contours:
             if cv2.contourArea(cnt) > min_area:
@@ -372,7 +372,7 @@ class hsv:
             mask = cv2.erode(mask, None, iterations=2)
             mask = cv2.dilate(mask, None, iterations=4)
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            min_area = 200 
+            min_area = 200
             final = np.zeros_like(mask)
             for cnt in contours:
                 if cv2.contourArea(cnt) > min_area:
