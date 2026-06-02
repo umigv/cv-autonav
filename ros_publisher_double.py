@@ -181,8 +181,8 @@ def spin_up_node(side: str, pos: rsc.CameraPosition, ser: int | None):
 
 
 if __name__ == "__main__":
-    left_pos =  rsc.CameraPosition(-240, 50, 0.08726646259971647)
-    right_pos = rsc.CameraPosition(105, 30, -0.2617993877991494)
+    left_pos =  rsc.CameraPosition(-240, 50, 0.17453292519943295)
+    right_pos = rsc.CameraPosition(105, 30, -0.20943951023931956)
 
 
     left_proc = spin_up_node("left", left_pos, 39394535)

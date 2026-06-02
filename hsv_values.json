@@ -64,7 +64,7 @@
     "RIGHT_ZED": {
         "__ZED_SETTINGS__": {
             "BRIGHTNESS": 0,
-            "CONTRAST": 6,
+            "CONTRAST": 7,
             "HUE": 0,
             "SATURATION": 8,
             "SHARPNESS": 0,
@@ -73,16 +73,16 @@
         "white": {
             "h_upper": 179,
             "h_lower": 0,
-            "s_upper": 166,
+            "s_upper": 151,
             "s_lower": 0,
             "v_upper": 255,
-            "v_lower": 65
+            "v_lower": 82
         }
     },
     "LEFT_ZED": {
         "__ZED_SETTINGS__": {
             "BRIGHTNESS": 0,
-            "CONTRAST": 6,
+            "CONTRAST": 7,
             "HUE": 0,
             "SATURATION": 8,
             "SHARPNESS": 0,
@@ -91,10 +91,10 @@
         "white": {
             "h_upper": 179,
             "h_lower": 0,
-            "s_upper": 154,
+            "s_upper": 149,
             "s_lower": 0,
             "v_upper": 255,
-            "v_lower": 37
+            "v_lower": 34
         }
     }
 }
